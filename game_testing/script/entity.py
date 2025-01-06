@@ -16,13 +16,16 @@ class Diagnal_Projectile:
         self.pos[0] += self.direction[0] * self.speed / self.length_of_direction
         self.pos[1] += self.direction[1] * self.speed / self.length_of_direction
         self.timer += 1
+    def reverse(self):
+        return True
 
 class Special_Projectile(Diagnal_Projectile):
-    def __init__(self,pos=[0,0],direction=[1,0],speed=1,img_name="",max_timer=180,type="normal",main_game=None):
+    def __init__(self,pos=[0,0],direction=[1,0],speed=1,img_name="",max_timer=180,type="normal",main_game=None,reverse=False):
         super().__init__(pos,direction,speed,img_name)
         self.max_timer = max_timer
         self.type = type
         self.main_game = main_game
+        self.can_reverse = reverse
 
     def update(self):
         if self.type == ("two_stage_spin" or "two_stage_random") and self.timer < self.max_timer:
@@ -60,6 +63,13 @@ class Special_Projectile(Diagnal_Projectile):
                 self.main_game.sparks.append(Ice_Flame(self.main_game.special_projectiles[-1].pos,random.random()*math.pi*2,1+random.random()))
         self.main_game.special_projectiles.remove(self)
 
+    def reverse(self):
+        if self.can_reverse:
+            self.direction = [-self.direction[0],-self.direction[1]]
+            self.can_reverse = False
+            return False
+        return True
+
 
 class physics_entity:
     def __init__(self,main_game,entity_type,position,size):
@@ -69,10 +79,11 @@ class physics_entity:
         self.size = size
         self.velocity = [0,0]
         self.dashing = 0
+        self.jumping = False
 
         #Animation
         self.action = ''
-        self.anim_offset = (-3,-3) #避免動畫比原本圖片大所以預留空間
+        self.anim_offset = (-5,-10) #避免動畫比原本圖片大所以預留空間
         self.flip = False
         self.set_action('idle')
 
@@ -114,6 +125,7 @@ class physics_entity:
                 if frame_movement[1] > 0:
                     entity_rect.bottom = rect.top
                     self.check_collision['down'] = True
+                    self.jumping = False
                 if frame_movement[1] < 0:
                     entity_rect.top = rect.bottom
                     self.check_collision['up'] = True
@@ -129,7 +141,12 @@ class physics_entity:
         surface.blit(pygame.transform.flip(self.anim.img(),self.flip,False),(self.position[0]-offset[0]+self.anim_offset[0],self.position[1]-offset[1]+self.anim_offset[1]))
         #surface.blit(self.main_game.assets['player'],(self.position[0]-offset[0],self.position[1]-offset[1])    )
     def render_new(self,surface,offset=[0,0]):
-        surface.blit(pygame.transform.scale(pygame.transform.flip(self.anim.img(),not self.flip,False),(56,70)),(4*int(self.position[0]-offset[0]+self.anim_offset[0]),4*int(self.position[1]-offset[1]+self.anim_offset[1])))
+        if self.entity_type == "player" or self.type == "boss":
+            surface.blit(pygame.transform.scale(pygame.transform.flip(self.anim.img(),not self.flip,False),(80,100)),(4*int(self.position[0]-offset[0]+self.anim_offset[0]),4*int(self.position[1]-offset[1]+self.anim_offset[1]+1))) #+1 for visually reg
+            #surface.blit(pygame.transform.scale(pygame.transform.flip(self.anim.img(),not self.flip,False),(56,70)),(4*int(self.position[0]-offset[0]+self.anim_offset[0]),4*int(self.position[1]-offset[1]+self.anim_offset[1]+1))) #+1 for visually reg
+        elif self.entity_type == "dummy":
+            surface.blit(pygame.transform.scale(pygame.transform.flip(self.anim.img(),not self.flip,False),(120,150)),(4*int(self.position[0]-offset[0]+self.anim_offset[0]),4*int(self.position[1]-offset[1]+self.anim_offset[1]+1)))
+
 
 class Player(physics_entity):
     def __init__(self,main_game,position,size,HP,weapon=None,spell_card=None,accessory=[]):     
@@ -138,6 +155,7 @@ class Player(physics_entity):
         self.jump_count = 2
         self.HP = HP
         self.attack_cool_down = 0    
+        self.attack_animation = 0
         self.inv_time = 0
         self.extra_attack = False
         self.extra_attack_frame = 0
@@ -165,7 +183,7 @@ class Player(physics_entity):
         self.spell_card = spell_card.name if spell_card else "none"
         self.accessory = [accessory[i].name for i in range(len(accessory))]
 
-        #self.accessory = ["巫女的御幣"]
+        self.testing_stats()
 
         if "水晶吊墜" in self.accessory:
             self.max_mana += 10
@@ -173,7 +191,7 @@ class Player(physics_entity):
         if "心型吊墜" in self.accessory:
             self.HP += 1
         if "亡靈提燈" in self.accessory:    
-            self.inv_time += 30
+            self.max_inv_time += 30
         #"蝙蝠吊墜" setting in enemy
         if "銀製匕首" in self.accessory:
             self.damage += 1
@@ -183,13 +201,14 @@ class Player(physics_entity):
             pass
         if "巫女的御幣" in self.accessory:
             self.extra_attack = True
-        self.testing_stats()
+        
     
     def testing_stats(self):
         #testing stats goes here
         #self.damage = 100
         #self.weapon = "貪欲的叉勺"
-
+        #self.accessory = ["巫女的御幣"]
+        self.accessory = ["亡靈提燈"]
         #self.weapon = "反則之書"
         #self.accessory = ["蝙蝠吊墜"]
         pass
@@ -210,7 +229,10 @@ class Player(physics_entity):
         if self.check_collision['down']:
             self.air_time = 0
             self.jump_count = 2
-        if self.air_time > 4:
+        if self.attack_animation > 0:
+            self.set_action('attack')
+            self.attack_animation -= 1
+        elif self.air_time > 4:
             self.set_action('jump') 
         elif movement[0] != 0:
             self.set_action('run')
@@ -259,19 +281,22 @@ class Player(physics_entity):
         if self.attack_cool_down == 0:
             self.main_game.sfx['swing'].play()
             self.attack_cool_down = self.max_attack_cool_down
+            self.attack_animation = 20
             if self.weapon == "none":
                 #attack a rect-space area in front of the player
                 #if charge is full, attack will deal additional damage
                 if self.flip:
                     hitbox = pygame.Rect(self.rect().centerx -36,self.rect().centery,28,16)
+                    self.main_game.particles.append(Particle(self.main_game,'slash',(self.rect().centerx -18,self.rect().centery),velocity=[0,0],frame=10))
                 else:
-                    hitbox = pygame.Rect(self.rect().centerx +8,self.rect().centery,28,16)   
+                    hitbox = pygame.Rect(self.rect().centerx +8,self.rect().centery,28,16) 
+                    self.main_game.particles.append(Particle(self.main_game,'slash',(self.rect().centerx +18,self.rect().centery),velocity=[0,0],frame=10,flip=True))  
                 for enemy in self.main_game.enemy_spawners:
-                    if hitbox.colliderect(enemy.rect()):
-                        enemy.HP -= 1.5*self.damage if self.charge == self.max_charge else self.damage
+                    if hitbox.colliderect(enemy.rect()) and enemy.type != 'beam':
+                        enemy.HP -= 1.5*self.damage if self.charge_effect else self.damage
                         self.charge = min(self.charge+self.charge_per_hit,self.max_charge)
                         self.main_game.sfx['hit'].play()
-                        for i in range(30):
+                        for i in range(10):
                             angle = random.random()*math.pi*2
                             speed = random.random() *5
                             self.main_game.sparks.append(Gold_Flame(enemy.rect().center,angle,2+random.random()))  
@@ -290,20 +315,22 @@ class Player(physics_entity):
             elif self.weapon == "貪欲的叉勺":
                 if self.flip:
                     hitbox = pygame.Rect(self.position[0]-36,self.position[1],28,22)
+                    self.main_game.particles.append(Particle(self.main_game,'slash',(self.rect().centerx -18,self.rect().centery),velocity=[0,0],frame=10))
                 else:
                     hitbox = pygame.Rect(self.position[0]+8,self.position[1],28,22)   
+                    self.main_game.particles.append(Particle(self.main_game,'slash',(self.rect().centerx +18,self.rect().centery),velocity=[0,0],frame=10,flip=True))  
                 for enemy in self.main_game.enemy_spawners:
                     if hitbox.colliderect(enemy.rect()):
                         enemy.HP -= self.damage
                         self.main_game.sfx['hit'].play()
-                        for i in range(30):
+                        for i in range(10):
                             angle = random.random()*math.pi*2
                             speed = random.random() *5
                             self.main_game.sparks.append(Gold_Flame(enemy.rect().center,angle,2+random.random()))  
                             self.main_game.particles.append(Particle(self.main_game,'particle',enemy.rect().center,[math.cos(angle+math.pi)*speed*0.5,math.sin(angle+math.pi)*speed*0.5],frame=random.randint(0,7)))  
                         self.main_game.sparks.append(Gold_Flame(enemy.rect().center, 0, 5+random.random()))
                         self.main_game.sparks.append(Gold_Flame(enemy.rect().center, math.pi, 5+random.random()))
-                for bullet in self.main_game.projectiles:
+                for bullet in self.main_game.projectiles.copy():
                     if hitbox.colliderect(pygame.Rect(bullet[0][0]-4,bullet[0][1]-4,8,8)):
                         self.charge = min(self.charge+self.charge_per_hit,self.max_charge)
                         self.main_game.projectiles.remove(bullet)
@@ -337,9 +364,9 @@ class Player(physics_entity):
                 for i in range(30):
                     #add leaf particle arround the player
                     angle = random.random()*math.pi*2
-                    speed = random.random() *5
+                    speed = random.random() *3
                     #self.main_game.sparks.append(Flexible_Spark(self.rect().center,angle,2+random.random(),(0,255,0)))
-                    self.main_game.particles.append(Particle(self.main_game,'particle',self.rect().center,[math.cos(angle+math.pi)*speed*0.5,math.sin(angle+math.pi)*speed*0.5],frame=random.randint(0,7)))
+                    self.main_game.particles.append(Particle(self.main_game,'hp',(self.rect().centerx+random.randint(-10,10),self.rect().centery+random.randint(-3,3)),[math.cos(angle+math.pi)*speed*0.5*0,-1*abs(math.sin(angle+math.pi)*speed*0.5)],frame=random.randint(0,7)))
 
                 #self.main_game.sfx['heal'].play()
                 self.HP = min(self.HP+1,6)
@@ -391,6 +418,7 @@ class Player(physics_entity):
 class Enemy(physics_entity):
     def __init__(self,main_game,position,size,phase=1,action_queue=[]):
         super().__init__(main_game,'enemy',position,size)
+        self.type='boss'
         self.flip = True
         self.set_action('idle')
 
@@ -414,17 +442,17 @@ class Enemy(physics_entity):
 
         if self.phase == 1:
             self.HP = 35
-            self.action_queue = [300]
+            self.action_queue = [['empty',60],300]
             self.p1_shoot_count = 0
             #self.HP = 1
         elif self.phase == 2:
             self.HP = 40
             #self.HP = 1
         elif self.phase == 3:
-            self.HP = 2250
+            self.HP = 2200
             self.using_spell_card = True
-            self.timer_HP = 2250
-            self.max_HP = 2250
+            self.timer_HP = 2200
+            self.max_HP = 2200
         self.attack_combo = 0
         self.max_HP = self.HP
         #combo 1: jump - dash - drop attack - land shot
@@ -432,7 +460,7 @@ class Enemy(physics_entity):
         self.test_stats()
     
     def test_stats(self):
-        self.HP=25
+        #self.HP=25
         pass
 
     def update(self, movement=(0,0),tilemap=None):
@@ -448,6 +476,7 @@ class Enemy(physics_entity):
                 self.velocity[1] = min(7,self.velocity[1]+0.1) #gravity
             if len(self.action_queue)>0 and isinstance(self.action_queue[0],int):
                 self.action_queue[0] -= 1
+                self.jumping = False
                 if self.action_queue[0] == 0:
                     self.action_queue.pop(0)
                     self.p1_shoot_count = 0
@@ -563,7 +592,8 @@ class Enemy(physics_entity):
                     self.froze_in_air = False
                     self.action_queue=[60,"jump()",40,"frozen_in_air()",10,"air_8_shoot(1)",30,"air_8_shoot(2)",30,"air_8_shoot(1)",30,"prepare_attack()",["attack_preview()",30],5,["dash_to()",1]]
         elif self.phase == 3:
-            self.timer_HP -= 1
+            if self.main_game.phase_3_start:
+                self.timer_HP -= 1
             if self.timer_HP == 0:
                 self.HP = 0
             if not self.using_spell_card and not self.froze_in_air:
@@ -607,16 +637,19 @@ class Enemy(physics_entity):
         elif self.rect().colliderect(self.main_game.player.rect()) and abs(self.main_game.player.dashing) > 50 and "蝙蝠吊墜" in self.main_game.player.accessory:
             self.HP -= self.main_game.player.damage
             self.main_game.sfx['hit'].play()
-            for i in range(30):
+            for i in range(10):
                 angle = random.random()*math.pi*2
                 speed = random.random() *5
                 self.main_game.sparks.append(Gold_Flame(self.rect().center,angle,2+random.random()))  
                 self.main_game.particles.append(Particle(self.main_game,'particle',self.rect().center,[math.cos(angle+math.pi)*speed*0.5,math.sin(angle+math.pi)*speed*0.5],frame=random.randint(0,7)))  
             if self.HP <= 0:
                 return True
-
-        if abs(movement[0]) > 0:
+        if self.dashing_towards_player or self.furiously_dashing or self.air_dashing or self.dashing:
+            self.set_action('dash')
+        elif abs(movement[0]) > 0:
             self.set_action('run')
+        elif self.jumping:
+            self.set_action('jump')
         else:
             self.set_action('idle') 
 
@@ -641,6 +674,7 @@ class Enemy(physics_entity):
                 self.main_game.sparks.append(Flexible_Spark(self.rect().center,angle,2+random.random(),color_code))
     def dash(self):
         #boss will move towards player's direction at a high speed for a short duration
+        self.dashing = True
         distance = self.check_player_pos()  
         if distance[0] > 0:
             self.velocity[0] = 5
@@ -699,7 +733,6 @@ class Enemy(physics_entity):
     def combo(self):
         if self.attack_combo == 1:
             self.action_queue = ["jump()",["empty",30],"frozen_in_air()","air_dash()",["aim_drop",30],"drop_attack()",["land_detect",60],"land_shoot()",["empty",30],["empty_walk",60],300]
-            print("combo 1")
         elif self.attack_combo == 2:
             if random.random() > 0.7:
                 self.action_queue = ["prepare_attack()",["empty",55],"dash()",["empty",10],"frozen_in_air()","normal_shoot()",["empty",20],"normal_shoot()",["empty",20],"normal_shoot()",["empty",20],"normal_shoot()",["empty",140],["empty_walk",60],300]
@@ -709,6 +742,10 @@ class Enemy(physics_entity):
 
     def frozen_in_air(self):
         self.velocity = [0,0]
+        self.dashing = False
+        self.air_dashing = False
+        self.dashing_towards_player = False
+        self.furiously_dashing = False
         self.froze_in_air = True
         #if collision with ground, stop the action
         if self.check_collision['down']:
@@ -749,6 +786,7 @@ class Enemy(physics_entity):
                 angle = i * math.pi / 8
                 self.main_game.special_projectiles.append(Special_Projectile((self.rect().centerx,self.rect().centery-7),[math.cos(angle),math.sin(angle)],1.5,"projectile",max_timer=30,type="small_explode",main_game=self.main_game))
             self.action_queue=[60,"jump()",20,"frozen_in_air()",10,"prepare_attack(1)",60,["spell_card()",80],90,"air_dash()",25,"frozen_in_air()",10,["spell_card()",80],90,["spread()",15],90,"prepare_attack()",["attack_preview()",30],5,["dash_to()",1]]
+            self.set_action('jump')
 
     def diag_explode_shoot(self):
         relavtive_pos = self.check_player_pos()
@@ -783,14 +821,14 @@ class Enemy(physics_entity):
     def ground_smash(self):
         for i in range(20):
             if self.flip:
-                self.main_game.sparks.append(Flame((self.rect().center[0]+random.randint(-6,6)-12,self.rect().center[1]-40), -1.5*math.pi, 3+random.random()))
+                self.main_game.sparks.append(Flame((self.rect().center[0]+random.randint(-6,6)-20,self.rect().center[1]-40), -1.5*math.pi, 3+random.random()))
                 #check if player is hit
-                if self.main_game.player.rect().colliderect(pygame.Rect(self.rect().center[0]-12,self.rect().center[1]-40,24,40)):
+                if self.main_game.player.rect().colliderect(pygame.Rect(self.rect().center[0]-36,self.rect().center[1]-40,24,40)):
                     self.main_game.player.take_damage(1)
             else:
-                self.main_game.sparks.append(Flame((self.rect().center[0]+random.randint(-6,6)+12,self.rect().center[1]-40), -1.5*math.pi, 3+random.random()))
+                self.main_game.sparks.append(Flame((self.rect().center[0]+random.randint(-6,6)+20,self.rect().center[1]-40), -1.5*math.pi, 3+random.random()))
                 #check if player is hit
-                if self.main_game.player.rect().colliderect(pygame.Rect(self.rect().center[0]+12,self.rect().center[1]-40,24,40)):
+                if self.main_game.player.rect().colliderect(pygame.Rect(self.rect().center[0]+20,self.rect().center[1]-40,24,40)):
                     self.main_game.player.take_damage(1)
         
         
@@ -823,10 +861,21 @@ class Enemy(physics_entity):
 
     def spell_card_spin(self,count_down_timer):
         self.using_spell_card = True
+        self.set_action('jump')
         if count_down_timer <=48:
-            for i in range(4):
-                angle = math.pi*2/32*(97-count_down_timer)+math.pi*i/2
-                self.main_game.special_projectiles.append(Special_Projectile(self.rect().center,[math.cos(angle),math.sin(angle)],3,"projectile_"+str(count_down_timer%7+1),max_timer=40,type="two_stage_spin",main_game=self.main_game))
+            if self.timer_HP > 1500:
+                for i in range(4):
+                    angle = math.pi*2/32*(97-count_down_timer)+math.pi*i/2
+                    self.main_game.special_projectiles.append(Special_Projectile(self.rect().center,[math.cos(angle),math.sin(angle)],3,"projectile_"+str(count_down_timer%7+1),max_timer=40,type="two_stage_spin",main_game=self.main_game))
+            elif self.timer_HP > 800:
+                for i in range(6):
+                    angle = math.pi*2/36*(97-count_down_timer)+math.pi*i/3
+                    self.main_game.special_projectiles.append(Special_Projectile(self.rect().center,[math.cos(angle),math.sin(angle)],3,"projectile_"+str(count_down_timer%7+1),max_timer=40,type="two_stage_spin",main_game=self.main_game))
+            else:
+                for i in range(6):
+                    angle = math.pi*2/32*(97-count_down_timer)+math.pi*i/3
+                    self.main_game.special_projectiles.append(Special_Projectile(self.rect().center,[math.cos(angle),math.sin(angle)],3,"projectile_"+str(count_down_timer%7+1),max_timer=40,type="two_stage_spin",main_game=self.main_game))
+                
         else:
             #shoot a completely random direction projectile
             for i in range(2):
@@ -835,63 +884,52 @@ class Enemy(physics_entity):
     def spell_card_spread(self):
         for i in range(3):
             self.main_game.special_projectiles.append(Special_Projectile(self.rect().center,[random.random()*2-1,random.random()*2-1],1,"projectile",max_timer=30,type="small_explode",main_game=self.main_game))
+            #self.main_game.special_projectiles.append(Special_Projectile(self.rect().center,[random.random()*2-1,random.random()*2-1],1,"fireball",max_timer=30,type="small_explode",main_game=self.main_game))
 
     def cut_in(self):
         self.main_game.cutscene_timer = 120
 
     def render(self,surface,offset=[0,0]):
         super().render(surface,offset)
-        if self.flip:
-            surface.blit(pygame.transform.flip(self.main_game.assets['gun'],True,False),(self.rect().centerx-4-self.main_game.assets['gun'].get_width() - offset[0],self.rect().centery - offset[1]))
-        else:
-            surface.blit(self.main_game.assets['gun'],(self.rect().centerx + 4 - offset[0],self.rect().centery - offset[1]))
 
 
 
+class Beam(physics_entity):
+    def __init__(self,main_game,position,size,velocity=[0,0],duration=0):
+        super().__init__(main_game,'beam',position,size)
+        self.duration = duration
+        self.velocity = velocity
+        self.anim_offset = [0,0]
+        self.type = 'beam'        
 
-
-
-
-
-
-
-class Boss(physics_entity):
-    def __init__(self,main_game,position,size):
-        super().__init__(main_game,"boss",position,size)
-        self.HP = 10
-        self.set_action('idle')
-    def update(self, movement=(0,0),tilemap=None):
+    def update(self,movement=(0,0),tilemap=None):
+        self.duration -= 1
+        if self.duration == 0:
+            return True
         super().update(movement,tilemap)
-        pass
+        if self.rect().colliderect(self.main_game.player.rect()) and abs(self.main_game.player.dashing) < 50: 
+            self.main_game.player.take_damage(1,self.check_player_pos())
+
+    def check_player_pos(self):
+        return list((self.main_game.player.rect().centerx - self.rect().centerx, self.main_game.player.rect().centery - self.rect().centery))
+
     def render(self,surface,offset=[0,0]):
         super().render(surface,offset)
-    def dash(self):
-        #boss will move towards player's direction at a high speed for a short duration
-        distance = (self.main_game.player.rect().centerx - self.rect().centerx, self.main_game.player.rect().centery - self.rect().centery)
-        if distance[0] > 0:
-            self.velocity[0] = 5
-        else:
-            self.velocity[0] = -5
-    def shoot(self):
-        #boss will shoot a projectile towards player's direction
-        distance = (self.main_game.player.rect().centerx - self.rect().centerx, self.main_game.player.rect().centery - self.rect().centery)
-        if distance[0] > 0:
-            self.main_game.projectiles.append([[self.rect().centerx+7,self.rect().centery],1.5,0])
-        else:
-            self.main_game.projectiles.append([[self.rect().centerx-7,self.rect().centery],-1.5,0])
-        for i in range(4):
-            self.main_game.sparks.append(Spark(self.main_game.projectiles[-1][0],random.random()-0.5,2+random.random()+2))
-    def jump(self):
-        #boss will jump and dash towards player's direction
-        self.velocity[1] = -5
-        self.set_action('jump')
-        self.dash()
-        self.drop_attack()
-    def drop_attack(self):
-        #boss will drop down and land, dealing damage to player if player is below
-        self.velocity[1] = 5
-        self.set_action('jump')
-        #spark effect
-        self.main_game.sparks.append(Spark(self.rect().center, 0, 5+random.random()))
-        self.main_game.sparks.append(Spark(self.rect().center, math.pi, 5+random.random()))
+
+
+class Dummy(physics_entity):
+    def __init__(self,main_game,position,size,velocity=[0,0]):
+        super().__init__(main_game,'dummy',position,size)
+        self.anim_offset = [-10,-21]
+        self.HP = 30
+        self.type = 'dummy'
         
+
+    def update(self,movement=(0,0),tilemap=None):
+        super().update(movement,tilemap)
+        self.velocity[1] = min(5,self.velocity[1]+0.1) #gravity
+        if self.HP <= 0:
+            return True
+
+    def render(self,surface,offset=[0,0]):
+        super().render(surface,offset)
